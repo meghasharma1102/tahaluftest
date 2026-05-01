@@ -115,11 +115,35 @@ jobs:
         run: terraform init -backend=false
 
       - name: Terraform plan
-        run: terraform plan -var-file=terraform.tfvars -input=false -lock=false -no-color -out=tfplan
+        run: |
+          $planArgs = @(
+            "plan"
+            "-var-file=terraform.tfvars"
+            "-input=false"
+            "-lock=false"
+            "-no-color"
+            "-out=tfplan"
+          )
+          & terraform @planArgs
 
       - name: Show Terraform plan
-        run: terraform show -no-color tfplan
+        run: |
+          $showArgs = @(
+            "show"
+            "-no-color"
+            "tfplan"
+          )
+          & terraform @showArgs
 
       - name: Terraform apply
         if: ${{ github.event.inputs.terraform_action == 'apply' }}
-        run: terraform apply -input=false -lock=false -no-color -auto-approve tfplan
+        run: |
+          $applyArgs = @(
+            "apply"
+            "-input=false"
+            "-lock=false"
+            "-no-color"
+            "-auto-approve"
+            "tfplan"
+          )
+          & terraform @applyArgs
