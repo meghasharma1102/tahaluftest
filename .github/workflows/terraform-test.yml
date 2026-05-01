@@ -49,11 +49,23 @@ jobs:
       - name: Prepare Azure CLI config directory
         run: New-Item -ItemType Directory -Force -Path $env:AZURE_CONFIG_DIR | Out-Null
 
+      - name: Clean Terraform workspace
+        run: |
+          Remove-Item -Recurse -Force .terraform -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force .terraform-ci -ErrorAction SilentlyContinue
+          Remove-Item -Force tfplan, tfplan.test -ErrorAction SilentlyContinue
+
       - name: Terraform fmt
         run: terraform fmt -check -recursive
 
       - name: Terraform init (backend disabled)
-        run: terraform init -backend=false
+        run: |
+          $initArgs = @(
+            "init"
+            "-backend=false"
+            "-reconfigure"
+          )
+          & terraform @initArgs
 
       - name: Terraform validate
         run: terraform validate
@@ -75,6 +87,12 @@ jobs:
 
       - name: Prepare Azure CLI config directory
         run: New-Item -ItemType Directory -Force -Path $env:AZURE_CONFIG_DIR | Out-Null
+
+      - name: Clean Terraform workspace
+        run: |
+          Remove-Item -Recurse -Force .terraform -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force .terraform-ci -ErrorAction SilentlyContinue
+          Remove-Item -Force tfplan, tfplan.test -ErrorAction SilentlyContinue
 
       - name: Validate Azure workflow variables
         run: |
@@ -112,7 +130,13 @@ jobs:
       # Keep plan backendless so workflow testing never writes state into the
       # legacy Tahaluf backend that is still configured in Provider.tf.
       - name: Terraform init (backend disabled)
-        run: terraform init -backend=false
+        run: |
+          $initArgs = @(
+            "init"
+            "-backend=false"
+            "-reconfigure"
+          )
+          & terraform @initArgs
 
       - name: Terraform plan
         run: |
