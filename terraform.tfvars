@@ -20,13 +20,13 @@ deploy_management_mg        = true
 # MANAGEMENT GROUP RESOURCE IDs
 # Replace the placeholder names with your actual management group names.
 
-deploy_amba = false # Leave false for now; AMBA still needs Delphi-specific RG/location values.
+deploy_amba = true # Leave false for now; AMBA still needs Delphi-specific RG/location values.
 
 # AMBA settings - keep these ready, but update the commented RG/location values
 # before turning deploy_amba on for the Delphi environment.
 amba_interpreter = ["pwsh", "-NoLogo", "-NoProfile", "-NonInteractive", "-File"]
-# amba_resource_group_name = "RG-DELPHI-<replace-with-management-rg>"
-# amba_location            = "<replace-with-azure-region>"
+amba_resource_group_name = "rg-delphi-amba-uaen-01"
+amba_location            = "uaenorth" # Replace with the location of the RG specified above.
 amba_alert_emails               = ["MSharma@delphime.com"]
 amba_management_subscription_id = "7b8f8a16-fc9d-49db-b186-7eff08883016"
 
