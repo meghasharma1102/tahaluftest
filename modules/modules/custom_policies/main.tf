@@ -28,10 +28,20 @@
 # }
 
 locals {
-  _initiative_files       = fileset("${path.module}/lib/initiatives", "*.json")
-  _policy_files           = fileset("${path.module}/lib/policies", "*.json")
-  _legacy_mg_scope_prefix = "/providers/Microsoft.Management/managementGroups/Tahaluf/providers/"
-  _target_mg_scope_prefix = "/providers/Microsoft.Management/managementGroups/${var.management_group_name}/providers/"
+  _excluded_initiative_files = toset([
+    # AMBA initiatives are created by the AMBA bootstrap flow, not by this
+    # custom policy module.
+    "Deploy-AzMonitor-Alerts-Identity.json",
+  ])
+  _initiative_files = [
+    for file_name in fileset("${path.module}/lib/initiatives", "*.json") :
+    file_name
+    if !contains(local._excluded_initiative_files, file_name)
+  ]
+  _policy_files            = fileset("${path.module}/lib/policies", "*.json")
+  _legacy_mg_scope_prefix  = "/providers/Microsoft.Management/managementGroups/Tahaluf/providers/"
+  _target_mg_scope_prefix  = "/providers/Microsoft.Management/managementGroups/${var.management_group_name}/providers/"
+  _target_policy_id_prefix = "/providers/Microsoft.Management/managementGroups/${var.management_group_name}/providers/Microsoft.Authorization/policyDefinitions/"
 
   # _initiatives_decoded = {
   #   for f in local._initiative_files :
@@ -100,9 +110,22 @@ resource "azurerm_policy_set_definition" "custom" {
   dynamic "policy_definition_reference" {
     for_each = each.value.policyDefinitions
     content {
-      policy_definition_id = policy_definition_reference.value.policyDefinitionId
-      reference_id         = policy_definition_reference.value.policyDefinitionReferenceId
-      parameter_values     = jsonencode(policy_definition_reference.value.parameters)
+      # When an initiative points at a custom policy that we create in this
+      # module, bind to the provider-returned ID instead of the raw JSON path.
+      policy_definition_id = can(
+        azurerm_policy_definition.custom[
+          reverse(split("/", policy_definition_reference.value.policyDefinitionId))[0]
+        ].id
+        ) ? azurerm_policy_definition.custom[
+        reverse(split("/", policy_definition_reference.value.policyDefinitionId))[0]
+        ].id : (
+        startswith(
+          policy_definition_reference.value.policyDefinitionId,
+          "/providers/Microsoft.Management/managementGroups/"
+        ) ? "${local._target_policy_id_prefix}${reverse(split("/", policy_definition_reference.value.policyDefinitionId))[0]}" : policy_definition_reference.value.policyDefinitionId
+      )
+      reference_id     = policy_definition_reference.value.policyDefinitionReferenceId
+      parameter_values = jsonencode(policy_definition_reference.value.parameters)
     }
   }
 
