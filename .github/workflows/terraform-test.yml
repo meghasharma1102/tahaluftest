@@ -1,0 +1,120 @@
+name: Terraform Test
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      terraform_action:
+        description: "Choose whether to stop at plan or continue to apply"
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_IN_AUTOMATION: true
+  TF_DATA_DIR: .terraform-ci
+  AZURE_CONFIG_DIR: ${{ github.workspace }}/.azure
+  ARM_USE_OIDC: true
+  # Keep Azure identity settings in GitHub repo/environment variables so the
+  # same workflow can run against different tenants without code changes.
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+
+      - name: Prepare Azure CLI config directory
+        run: New-Item -ItemType Directory -Force -Path $env:AZURE_CONFIG_DIR | Out-Null
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init (backend disabled)
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+  execute:
+    name: Plan or Apply
+    needs: validate
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+
+      - name: Prepare Azure CLI config directory
+        run: New-Item -ItemType Directory -Force -Path $env:AZURE_CONFIG_DIR | Out-Null
+
+      - name: Validate Azure workflow variables
+        run: |
+          $missing = @()
+          foreach ($name in "ARM_CLIENT_ID", "ARM_TENANT_ID", "ARM_SUBSCRIPTION_ID") {
+            if ([string]::IsNullOrWhiteSpace((Get-Item -Path "Env:$name").Value)) {
+              $missing += $name
+            }
+          }
+
+          if ($missing.Count -gt 0) {
+            throw "Missing GitHub repository/environment variables: $($missing -join ', ')."
+          }
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.ARM_CLIENT_ID }}
+          tenant-id: ${{ env.ARM_TENANT_ID }}
+          subscription-id: ${{ env.ARM_SUBSCRIPTION_ID }}
+
+      - name: Confirm Azure context
+        run: |
+          $account = az account show --output json | ConvertFrom-Json
+          if ($account.id -ne $env:ARM_SUBSCRIPTION_ID) {
+            throw "Azure login landed on subscription '$($account.id)' instead of '$env:ARM_SUBSCRIPTION_ID'."
+          }
+
+          if ($account.tenantId -ne $env:ARM_TENANT_ID) {
+            throw "Azure login landed on tenant '$($account.tenantId)' instead of '$env:ARM_TENANT_ID'."
+          }
+
+          Write-Host "Azure context OK - subscription: $($account.id), tenant: $($account.tenantId)"
+
+      # Keep plan backendless so workflow testing never writes state into the
+      # legacy Tahaluf backend that is still configured in Provider.tf.
+      - name: Terraform init (backend disabled)
+        run: terraform init -backend=false
+
+      - name: Terraform plan
+        run: terraform plan -var-file=terraform.tfvars -input=false -lock=false -no-color -out=tfplan
+
+      - name: Terraform apply
+        if: ${{ github.event.inputs.terraform_action == 'apply' }}
+        run: terraform apply -input=false -lock=false -auto-approve tfplan
